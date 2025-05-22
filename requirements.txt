@@ -1,5 +1,5 @@
 flask
 requests
 pandas
-pmdarima
-pytz
+numpy==1.23.5
+pmdarima==2.0.3
