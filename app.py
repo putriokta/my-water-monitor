@@ -8,7 +8,6 @@ import time
 import pytz
 import warnings
 import os
-import fcntl  # ← for file lock
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -20,21 +19,12 @@ CHAT_ID = "1027769170"
 CHANNEL_ID = "2761831"
 TIMEZONE = pytz.timezone("Asia/Makassar")
 
+# === STATE NOTIFIKASI ===
 last_status = ""
 last_sent_time = 0
-lock = threading.Lock()
-
-# === CEGAH DUPLIKAT MONITORING (antar proses) ===
-def sudah_ada_instance():
-    try:
-        f = open("lockfile.lock", "w")
-        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        return False  # Belum ada instance lain
-    except IOError:
-        return True  # Sudah ada instance lain
 
 # === AMBIL DATA ===
-def ambil_data_thingspeak(jumlah_data=200):
+def ambil_data_thingspeak(jumlah_data=100):
     try:
         timestamp = int(time.time())
         url = f"https://api.thingspeak.com/channels/2761831/feeds.csv?results={jumlah_data}&_={timestamp}"
@@ -58,15 +48,15 @@ def kirim_telegram(pesan):
         if response.status_code == 200:
             print("📤 Telegram dikirim.")
         else:
-            print(f"⚠️ Gagal kirim: {response.status_code} - {response.text}")
+            print("⚠️ Gagal kirim:", response.text)
     except Exception as e:
         print("❌ Error kirim Telegram:", e)
 
 # === RULE BASE ===
 def cek_rulebase(ph, suhu):
     if ph <= 6.5 or ph >= 8.9 or suhu <= 26 or suhu >= 29:
-        return "danger"
-    return "normal"
+        return "🚨 Air mendekati ambang batas, harap melakukan pengecekkan kondisi air"
+    return "✅ Air dalam kondisi normal"
 
 # === DETEKSI + PREDIKSI + NOTIF ===
 def deteksi_dan_prediksi(df):
@@ -78,7 +68,7 @@ def deteksi_dan_prediksi(df):
         aktual_ph = data_ph.iloc[-1]
         aktual_suhu = data_suhu.iloc[-1]
 
-        if len(data_ph) < 60 or len(data_suhu) < 60:
+        if len(data_ph) < 30 or len(data_suhu) < 30:
             print("⚠️ Data tidak cukup.")
             return
 
@@ -95,54 +85,40 @@ def deteksi_dan_prediksi(df):
         status = cek_rulebase(ph_60, suhu_60)
         waktu_sekarang = time.time()
 
-        with lock:
-            print(f"[DEBUG] last_status: {last_status}, last_sent_time: {last_sent_time}, current status: {status}")
-            print(f"[DEBUG] Condition to send: {status != last_status} or {waktu_sekarang - last_sent_time >= 600}")
-
-            if status == "danger":
-                if status != last_status or waktu_sekarang - last_sent_time >= 600:
-                    pesan = (
-                        "🚨 Air mendekati ambang batas, harap melakukan pengecekkan kondisi air\n\n"
-                        f"📍 Waktu Aktual: {waktu_terakhir.strftime('%H:%M:%S')} WITA\n"
-                        f"pH: {aktual_ph:.2f} | Suhu: {aktual_suhu:.2f}°C\n"
-                        f"\n🔮 Prediksi 1 Jam ke Depan ({waktu_pred_60.strftime('%H:%M:%S')} WITA):\n"
-                        f"pH: {ph_60:.2f} | Suhu: {suhu_60:.2f}°C"
-                    )
-                    kirim_telegram(pesan)
-                    last_status = status
-                    last_sent_time = waktu_sekarang
-                else:
-                    print("⏳ Prediksi bahaya sama, tunggu 10 menit untuk kirim ulang.")
-            else:
-                if last_status != "normal":
-                    print("✅ Kondisi kembali normal.")
-                    pesan = (
-                        "✅ Kondisi air kembali normal.\n"
-                        f"📍 Waktu Aktual: {waktu_terakhir.strftime('%H:%M:%S')} WITA\n"
-                        f"pH: {aktual_ph:.2f} | Suhu: {aktual_suhu:.2f}°C"
-                    )
-                    kirim_telegram(pesan)
-                last_status = "normal"
+        if status != last_status or (status == last_status and waktu_sekarang - last_sent_time >= 600):
+            if "🚨" in status:
+                pesan = (
+                    f"{status}\n"
+                    f"📍 Waktu Aktual: {waktu_terakhir.strftime('%H:%M:%S')} WITA\n\n"
+                    f"pH: {aktual_ph:.2f} | Suhu: {aktual_suhu:.2f}°C\n\n"
+                    f"🔮 Prediksi 1 Jam → pH: {ph_60:.2f} | Suhu: {suhu_60:.2f}°C @ {waktu_pred_60.strftime('%H:%M:%S')} WITA"
+                )
+                kirim_telegram(pesan)
+                last_status = status
                 last_sent_time = waktu_sekarang
-
+            else:
+                print("✅ Kondisi normal, tidak kirim pesan.")
+        else:
+            print("⏳ Menunggu kondisi berubah atau 10 menit berlalu.")
     except Exception:
         traceback.print_exc()
 
-# === LOOP TIAP 10 MENIT ===
+# === LOOP STABIL ===
 def loop_monitoring():
-    print("[INFO] Loop monitoring mulai...")
-    df = ambil_data_thingspeak(200)
-    if not df.empty:
-        deteksi_dan_prediksi(df)
-    else:
-        print("⚠️ Data kosong, lewati monitoring.")
-    threading.Timer(600, loop_monitoring).start()
+    while True:
+        try:
+            df = ambil_data_thingspeak(60)
+            if not df.empty:
+                deteksi_dan_prediksi(df)
+        except Exception as e:
+            print("❌ Error di loop:", e)
+        time.sleep(60)
 
-# === WEB UNTUK TAMPILAN MANUAL ===
+# === WEB ===
 @app.route('/')
 def index():
     try:
-        df = ambil_data_thingspeak(200)
+        df = ambil_data_thingspeak(60)
         if df.empty:
             return "<p>⚠️ Data kosong.</p>"
 
@@ -163,7 +139,6 @@ def index():
         waktu_pred_60 = waktu_terakhir + pd.Timedelta(minutes=60)
 
         status = cek_rulebase(ph_60, suhu_60)
-        status_text = "🚨 Air mendekati ambang batas, harap melakukan pengecekkan kondisi air" if status == "danger" else "✅ Air dalam kondisi normal"
 
         return f"""
         <h2>📊 Monitoring Kualitas Air</h2>
@@ -171,22 +146,15 @@ def index():
             <li>🕒 Waktu Aktual: <b>{waktu_terakhir.strftime('%Y-%m-%d %H:%M:%S')} (WITA)</b></li>
             <li>📌 Aktual → pH: <b>{aktual_ph:.2f}</b> | Suhu: <b>{aktual_suhu:.2f}°C</b></li>
             <li>🔮 Prediksi 1 Jam → pH: <b>{ph_60:.2f}</b> | Suhu: <b>{suhu_60:.2f}°C</b> @ {waktu_pred_60.strftime('%H:%M:%S')}</li>
-            <li>📋 Status Prediksi: <b>{status_text}</b></li>
+            <li>📋 Status Prediksi: <b>{status}</b></li>
         </ul>
         """
     except Exception:
         traceback.print_exc()
         return "<p>❌ Terjadi error saat prediksi.</p>"
 
-# === JALANKAN APP ===
+# === JALANKAN APLIKASI ===
 if __name__ == '__main__':
-    if not sudah_ada_instance():
-        def start_loop():
-            print(f"[PID] Proses ID: {os.getpid()}")
-            loop_monitoring()
-        threading.Thread(target=start_loop, daemon=True).start()
-    else:
-        print("⚠️ Instance monitoring sudah berjalan. Tidak memulai ulang.")
-
+    threading.Thread(target=loop_monitoring, daemon=True).start()
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, use_reloader=False)
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
