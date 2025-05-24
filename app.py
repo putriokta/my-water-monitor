@@ -8,6 +8,7 @@ import time
 import pytz
 import warnings
 import os
+import fcntl  # ← for file lock
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -22,6 +23,15 @@ TIMEZONE = pytz.timezone("Asia/Makassar")
 last_status = ""
 last_sent_time = 0
 lock = threading.Lock()
+
+# === CEGAH DUPLIKAT MONITORING (antar proses) ===
+def sudah_ada_instance():
+    try:
+        f = open("lockfile.lock", "w")
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return False  # Belum ada instance lain
+    except IOError:
+        return True  # Sudah ada instance lain
 
 # === AMBIL DATA ===
 def ambil_data_thingspeak(jumlah_data=200):
@@ -55,8 +65,8 @@ def kirim_telegram(pesan):
 # === RULE BASE ===
 def cek_rulebase(ph, suhu):
     if ph <= 6.5 or ph >= 8.9 or suhu <= 26 or suhu >= 29:
-        return "🚨 Air mendekati ambang batas, harap melakukan pengecekkan kondisi air"
-    return "✅ Air dalam kondisi normal"
+        return "danger"
+    return "normal"
 
 # === DETEKSI + PREDIKSI + NOTIF ===
 def deteksi_dan_prediksi(df):
@@ -86,10 +96,13 @@ def deteksi_dan_prediksi(df):
         waktu_sekarang = time.time()
 
         with lock:
-            if "🚨" in status:
+            print(f"[DEBUG] last_status: {last_status}, last_sent_time: {last_sent_time}, current status: {status}")
+            print(f"[DEBUG] Condition to send: {status != last_status} or {waktu_sekarang - last_sent_time >= 600}")
+
+            if status == "danger":
                 if status != last_status or waktu_sekarang - last_sent_time >= 600:
                     pesan = (
-                        f"{status}\n"
+                        "🚨 Air mendekati ambang batas, harap melakukan pengecekkan kondisi air\n\n"
                         f"📍 Waktu Aktual: {waktu_terakhir.strftime('%H:%M:%S')} WITA\n"
                         f"pH: {aktual_ph:.2f} | Suhu: {aktual_suhu:.2f}°C\n"
                         f"\n🔮 Prediksi 1 Jam ke Depan ({waktu_pred_60.strftime('%H:%M:%S')} WITA):\n"
@@ -101,17 +114,29 @@ def deteksi_dan_prediksi(df):
                 else:
                     print("⏳ Prediksi bahaya sama, tunggu 10 menit untuk kirim ulang.")
             else:
-                print("✅ Prediksi aman.")
+                if last_status != "normal":
+                    print("✅ Kondisi kembali normal.")
+                    pesan = (
+                        "✅ Kondisi air kembali normal.\n"
+                        f"📍 Waktu Aktual: {waktu_terakhir.strftime('%H:%M:%S')} WITA\n"
+                        f"pH: {aktual_ph:.2f} | Suhu: {aktual_suhu:.2f}°C"
+                    )
+                    kirim_telegram(pesan)
+                last_status = "normal"
+                last_sent_time = waktu_sekarang
 
     except Exception:
         traceback.print_exc()
 
 # === LOOP TIAP 10 MENIT ===
 def loop_monitoring():
+    print("[INFO] Loop monitoring mulai...")
     df = ambil_data_thingspeak(200)
     if not df.empty:
         deteksi_dan_prediksi(df)
-    threading.Timer(600, loop_monitoring).start()  # tiap 10 menit
+    else:
+        print("⚠️ Data kosong, lewati monitoring.")
+    threading.Timer(600, loop_monitoring).start()
 
 # === WEB UNTUK TAMPILAN MANUAL ===
 @app.route('/')
@@ -138,6 +163,7 @@ def index():
         waktu_pred_60 = waktu_terakhir + pd.Timedelta(minutes=60)
 
         status = cek_rulebase(ph_60, suhu_60)
+        status_text = "🚨 Air mendekati ambang batas, harap melakukan pengecekkan kondisi air" if status == "danger" else "✅ Air dalam kondisi normal"
 
         return f"""
         <h2>📊 Monitoring Kualitas Air</h2>
@@ -145,7 +171,7 @@ def index():
             <li>🕒 Waktu Aktual: <b>{waktu_terakhir.strftime('%Y-%m-%d %H:%M:%S')} (WITA)</b></li>
             <li>📌 Aktual → pH: <b>{aktual_ph:.2f}</b> | Suhu: <b>{aktual_suhu:.2f}°C</b></li>
             <li>🔮 Prediksi 1 Jam → pH: <b>{ph_60:.2f}</b> | Suhu: <b>{suhu_60:.2f}°C</b> @ {waktu_pred_60.strftime('%H:%M:%S')}</li>
-            <li>📋 Status Prediksi: <b>{status}</b></li>
+            <li>📋 Status Prediksi: <b>{status_text}</b></li>
         </ul>
         """
     except Exception:
@@ -154,6 +180,13 @@ def index():
 
 # === JALANKAN APP ===
 if __name__ == '__main__':
-    loop_monitoring()  # Jalankan loop monitoring background
+    if not sudah_ada_instance():
+        def start_loop():
+            print(f"[PID] Proses ID: {os.getpid()}")
+            loop_monitoring()
+        threading.Thread(target=start_loop, daemon=True).start()
+    else:
+        print("⚠️ Instance monitoring sudah berjalan. Tidak memulai ulang.")
+
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, use_reloader=False)
