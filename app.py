@@ -22,6 +22,7 @@ TIMEZONE = pytz.timezone("Asia/Makassar")
 last_status = ""
 last_sent_time = 0
 lock = threading.Lock()
+monitor_started = threading.Event()  # ← Cegah duplikat loop
 
 # === AMBIL DATA ===
 def ambil_data_thingspeak(jumlah_data=200):
@@ -52,7 +53,7 @@ def kirim_telegram(pesan):
     except Exception as e:
         print("❌ Error kirim Telegram:", e)
 
-# === RULE BASE (status sederhana) ===
+# === RULE BASE ===
 def cek_rulebase(ph, suhu):
     if ph <= 6.5 or ph >= 8.9 or suhu <= 26 or suhu >= 29:
         return "danger"
@@ -120,13 +121,18 @@ def deteksi_dan_prediksi(df):
 
 # === LOOP TIAP 10 MENIT ===
 def loop_monitoring():
+    if monitor_started.is_set():
+        print("[INFO] Monitoring sudah aktif, skip duplikat.")
+        return
+    monitor_started.set()
+
     print("[INFO] Loop monitoring mulai...")
     df = ambil_data_thingspeak(200)
     if not df.empty:
         deteksi_dan_prediksi(df)
     else:
         print("⚠️ Data kosong, lewati monitoring.")
-    threading.Timer(600, loop_monitoring).start()  # tiap 10 menit
+    threading.Timer(600, loop_monitoring).start()
 
 # === WEB UNTUK TAMPILAN MANUAL ===
 @app.route('/')
@@ -170,9 +176,6 @@ def index():
 
 # === JALANKAN APP ===
 if __name__ == '__main__':
-    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
-        loop_monitoring()
+    loop_monitoring()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, use_reloader=True)
-
-
