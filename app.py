@@ -188,9 +188,15 @@ def index():
 
 # === JALANKAN APP ===
 if __name__ == '__main__':
-    if os.environ.get("RAILWAY_ENVIRONMENT") or not os.environ.get("WERKZEUG_RUN_MAIN"):
-        print(f"[INFO] Memulai loop monitoring di PID {os.getpid()}")
-        loop_monitoring()
+    if not monitor_thread_started:
+        def start_loop():
+            global monitor_thread_started
+            if not monitor_thread_started:
+                monitor_thread_started = True
+                print(f"[PID] Proses ID: {os.getpid()}")
+                loop_monitoring()
+
+        threading.Thread(target=start_loop, daemon=True).start()
 
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, use_reloader=False)
