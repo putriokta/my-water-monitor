@@ -19,12 +19,11 @@ CHAT_ID = "1027769170"
 CHANNEL_ID = "2761831"
 TIMEZONE = pytz.timezone("Asia/Makassar")
 
-# === STATE NOTIFIKASI ===
 last_status = ""
 last_sent_time = 0
 
 # === AMBIL DATA ===
-def ambil_data_thingspeak(jumlah_data=100):
+def ambil_data_thingspeak(jumlah_data=200):
     try:
         timestamp = int(time.time())
         url = f"https://api.thingspeak.com/channels/2761831/feeds.csv?results={jumlah_data}&_={timestamp}"
@@ -68,32 +67,31 @@ def deteksi_dan_prediksi(df):
         aktual_ph = data_ph.iloc[-1]
         aktual_suhu = data_suhu.iloc[-1]
 
-        if len(data_ph) < 30 or len(data_suhu) < 30:
+        if len(data_ph) < 60 or len(data_suhu) < 60:
             print("⚠️ Data tidak cukup.")
             return
 
         model_ph = auto_arima(data_ph, seasonal=False, suppress_warnings=True, stepwise=True)
         model_suhu = auto_arima(data_suhu, seasonal=False, suppress_warnings=True, stepwise=True)
 
-        pred_ph = model_ph.predict(n_periods=5).tolist()
-        pred_suhu = model_suhu.predict(n_periods=5).tolist()
+        pred_ph = model_ph.predict(n_periods=60).tolist()
+        pred_suhu = model_suhu.predict(n_periods=60).tolist()
 
-        ph_5 = pred_ph[4]
-        suhu_5 = pred_suhu[4]
-        waktu_pred_5 = waktu_terakhir + pd.Timedelta(minutes=5)
+        ph_60 = pred_ph[59]
+        suhu_60 = pred_suhu[59]
+        waktu_pred_60 = waktu_terakhir + pd.Timedelta(minutes=60)
 
-        status = cek_rulebase(ph_5, suhu_5)
+        status = cek_rulebase(ph_60, suhu_60)
 
-        # Kirim jika status berubah ATAU sudah lewat 5 menit
         waktu_sekarang = time.time()
-        if status != last_status or waktu_sekarang - last_sent_time >= 300:
+        if status != last_status or waktu_sekarang - last_sent_time >= 3600:
             if "🚨" in status:
                 pesan = (
                     f"{status}\n"
                     f"📍 Waktu Aktual: {waktu_terakhir.strftime('%H:%M:%S')} WITA\n"
                     f"pH: {aktual_ph:.2f} | Suhu: {aktual_suhu:.2f}°C\n"
-                    f"\n🔮 Prediksi 5 Menit ke Depan ({waktu_pred_5.strftime('%H:%M:%S')} WITA):\n"
-                    f"pH: {ph_5:.2f} | Suhu: {suhu_5:.2f}°C"
+                    f"\n🔮 Prediksi 1 Jam ke Depan ({waktu_pred_60.strftime('%H:%M:%S')} WITA):\n"
+                    f"pH: {ph_60:.2f} | Suhu: {suhu_60:.2f}°C"
                 )
                 kirim_telegram(pesan)
                 last_status = status
@@ -101,22 +99,22 @@ def deteksi_dan_prediksi(df):
             else:
                 print("✅ Kondisi normal, tidak kirim pesan.")
         else:
-            print("⏳ Menunggu kondisi berubah atau 5 menit berlalu.")
+            print("⏳ Menunggu kondisi berubah atau 1 jam berlalu.")
     except Exception:
         traceback.print_exc()
 
-# === LOOP PER MENIT ===
+# === LOOP 1 JAM ===
 def loop_monitoring():
-    df = ambil_data_thingspeak(60)
+    df = ambil_data_thingspeak(200)
     if not df.empty:
         deteksi_dan_prediksi(df)
-    threading.Timer(60, loop_monitoring).start()
+    threading.Timer(3600, loop_monitoring).start()  # setiap 1 jam
 
 # === WEB UNTUK TAMPILAN MANUAL ===
 @app.route('/')
 def index():
     try:
-        df = ambil_data_thingspeak(60)
+        df = ambil_data_thingspeak(200)
         if df.empty:
             return "<p>⚠️ Data kosong.</p>"
 
@@ -129,25 +127,21 @@ def index():
         model_ph = auto_arima(data_ph, seasonal=False, suppress_warnings=True, stepwise=True)
         model_suhu = auto_arima(data_suhu, seasonal=False, suppress_warnings=True, stepwise=True)
 
-        pred_ph = model_ph.predict(n_periods=5).tolist()
-        pred_suhu = model_suhu.predict(n_periods=5).tolist()
+        pred_ph = model_ph.predict(n_periods=60).tolist()
+        pred_suhu = model_suhu.predict(n_periods=60).tolist()
 
-        ph_1 = pred_ph[0]
-        suhu_1 = pred_suhu[0]
-        ph_5 = pred_ph[4]
-        suhu_5 = pred_suhu[4]
-        waktu_pred_1 = waktu_terakhir + pd.Timedelta(minutes=1)
-        waktu_pred_5 = waktu_terakhir + pd.Timedelta(minutes=5)
+        ph_60 = pred_ph[59]
+        suhu_60 = pred_suhu[59]
+        waktu_pred_60 = waktu_terakhir + pd.Timedelta(minutes=60)
 
-        status = cek_rulebase(ph_5, suhu_5)
+        status = cek_rulebase(ph_60, suhu_60)
 
         return f"""
         <h2>📊 Monitoring Kualitas Air</h2>
         <ul>
             <li>🕒 Waktu Aktual: <b>{waktu_terakhir.strftime('%Y-%m-%d %H:%M:%S')} (WITA)</b></li>
             <li>📌 Aktual → pH: <b>{aktual_ph:.2f}</b> | Suhu: <b>{aktual_suhu:.2f}°C</b></li>
-            <li>🔮 Prediksi 1 Menit → pH: <b>{ph_1:.2f}</b> | Suhu: <b>{suhu_1:.2f}°C</b> @ {waktu_pred_1.strftime('%H:%M:%S')}</li>
-            <li>🔮 Prediksi 5 Menit → pH: <b>{ph_5:.2f}</b> | Suhu: <b>{suhu_5:.2f}°C</b> @ {waktu_pred_5.strftime('%H:%M:%S')}</li>
+            <li>🔮 Prediksi 1 Jam → pH: <b>{ph_60:.2f}</b> | Suhu: <b>{suhu_60:.2f}°C</b> @ {waktu_pred_60.strftime('%H:%M:%S')}</li>
             <li>📋 Status Prediksi: <b>{status}</b></li>
         </ul>
         """
@@ -157,6 +151,6 @@ def index():
 
 # === JALANKAN ===
 if __name__ == '__main__':
+    loop_monitoring()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
