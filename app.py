@@ -22,7 +22,6 @@ TIMEZONE = pytz.timezone("Asia/Makassar")
 last_status = ""
 last_sent_time = 0
 lock = threading.Lock()
-monitor_started = threading.Event()  # ← Cegah duplikat loop
 
 # === AMBIL DATA ===
 def ambil_data_thingspeak(jumlah_data=200):
@@ -119,22 +118,35 @@ def deteksi_dan_prediksi(df):
     except Exception:
         traceback.print_exc()
 
-# === LOOP TIAP 10 MENIT ===
+# === LOOP MONITORING ===
 def loop_monitoring():
-    if monitor_started.is_set():
-        print("[INFO] Monitoring sudah aktif, skip duplikat.")
+    lock_file = "loop_monitoring.lock"
+
+    if os.path.exists(lock_file):
+        print("[LOCK] Monitoring sudah aktif, skip.")
         return
-    monitor_started.set()
 
-    print("[INFO] Loop monitoring mulai...")
-    df = ambil_data_thingspeak(200)
-    if not df.empty:
-        deteksi_dan_prediksi(df)
-    else:
-        print("⚠️ Data kosong, lewati monitoring.")
-    threading.Timer(600, loop_monitoring).start()
+    try:
+        with open(lock_file, "w") as f:
+            f.write(str(os.getpid()))
 
-# === WEB UNTUK TAMPILAN MANUAL ===
+        print("[INFO] Loop monitoring mulai...")
+        df = ambil_data_thingspeak(200)
+        if not df.empty:
+            deteksi_dan_prediksi(df)
+        else:
+            print("⚠️ Data kosong, lewati monitoring.")
+
+        threading.Timer(600, loop_monitoring).start()
+
+    except Exception as e:
+        print(f"[ERROR] Monitoring gagal: {e}")
+
+    finally:
+        if os.path.exists(lock_file):
+            os.remove(lock_file)
+
+# === HALAMAN UTAMA ===
 @app.route('/')
 def index():
     try:
@@ -177,7 +189,7 @@ def index():
 # === JALANKAN APP ===
 if __name__ == '__main__':
     if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
-        print(f"[PID] Proses ID: {os.getpid()}")  # ← Tambahkan di sini
+        print(f"[PID] Proses ID: {os.getpid()}")
         loop_monitoring()
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, use_reloader=False) 
+    app.run(host="0.0.0.0", port=port, use_reloader=False)
