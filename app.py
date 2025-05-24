@@ -84,33 +84,30 @@ def deteksi_dan_prediksi(df):
         status = cek_rulebase(ph_60, suhu_60)
 
         waktu_sekarang = time.time()
-        if status != last_status or waktu_sekarang - last_sent_time >= 3600:
-         if "🚨" in status:
-            if status != last_status or waktu_sekarang - last_sent_time >= 3600:
-                pesan = (
-                    f"{status}\n"
-                    f"📍 Waktu Aktual: {waktu_terakhir.strftime('%H:%M:%S')} WITA\n"
-                    f"pH: {aktual_ph:.2f} | Suhu: {aktual_suhu:.2f}°C\n"
-                    f"\n🔮 Prediksi 1 Jam ke Depan ({waktu_pred_60.strftime('%H:%M:%S')} WITA):\n"
-                    f"pH: {ph_60:.2f} | Suhu: {suhu_60:.2f}°C"
-                )
-                kirim_telegram(pesan)
-                last_status = status
-                last_sent_time = waktu_sekarang
-            else:
-                print("⏳ Prediksi bahaya tetap, tunggu 1 jam untuk kirim ulang.")
+
+        if "🚨" in status and (status != last_status or waktu_sekarang - last_sent_time >= 600):
+            pesan = (
+                f"{status}\n"
+                f"📍 Waktu Aktual: {waktu_terakhir.strftime('%H:%M:%S')} WITA\n"
+                f"pH: {aktual_ph:.2f} | Suhu: {aktual_suhu:.2f}°C\n"
+                f"\n🔮 Prediksi 1 Jam ke Depan ({waktu_pred_60.strftime('%H:%M:%S')} WITA):\n"
+                f"pH: {ph_60:.2f} | Suhu: {suhu_60:.2f}°C"
+            )
+            kirim_telegram(pesan)
+            last_status = status
+            last_sent_time = waktu_sekarang
         else:
-            print("✅ Prediksi aman.")
+            print("✅ Tidak ada perubahan signifikan atau belum 10 menit.")
 
     except Exception:
         traceback.print_exc()
 
-# === LOOP 1 JAM ===
+# === LOOP TIAP 10 MENIT ===
 def loop_monitoring():
     df = ambil_data_thingspeak(200)
     if not df.empty:
         deteksi_dan_prediksi(df)
-    threading.Timer(3600, loop_monitoring).start()  # setiap 1 jam
+    threading.Timer(600, loop_monitoring).start()  # setiap 10 menit
 
 # === WEB UNTUK TAMPILAN MANUAL ===
 @app.route('/')
@@ -151,8 +148,8 @@ def index():
         traceback.print_exc()
         return "<p>❌ Terjadi error saat prediksi.</p>"
 
-# === JALANKAN ===
+# === JALANKAN APP ===
 if __name__ == '__main__':
-    loop_monitoring()
+    # loop_monitoring()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
