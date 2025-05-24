@@ -106,12 +106,16 @@ def deteksi_dan_prediksi(df):
     except Exception:
         traceback.print_exc()
 
-# === LOOP TIAP 10 MENIT ===
-def loop_monitoring():
-    df = ambil_data_thingspeak(200)
-    if not df.empty:
-        deteksi_dan_prediksi(df)
-    threading.Timer(600, loop_monitoring).start()  # tiap 10 menit
+# === THREAD LOOP MONITORING ===
+def loop_monitoring_thread():
+    while True:
+        print("🚀 loop_monitoring dijalankan pada", time.strftime("%Y-%m-%d %H:%M:%S"))
+        df = ambil_data_thingspeak(200)
+        if not df.empty:
+            deteksi_dan_prediksi(df)
+        else:
+            print("⚠️ Data kosong, skip prediksi.")
+        time.sleep(600)  # Delay 10 menit
 
 # === WEB UNTUK TAMPILAN MANUAL ===
 @app.route('/')
@@ -154,6 +158,7 @@ def index():
 
 # === JALANKAN APP ===
 if __name__ == '__main__':
-    loop_monitoring()  # Jalankan loop monitoring background
+    # Mulai thread monitoring background
+    threading.Thread(target=loop_monitoring_thread, daemon=True).start()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
