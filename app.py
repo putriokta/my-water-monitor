@@ -10,7 +10,6 @@ import warnings
 import os
 
 warnings.filterwarnings("ignore", category=FutureWarning)
-
 app = Flask(__name__)
 
 # === KONFIGURASI ===
@@ -22,6 +21,7 @@ TIMEZONE = pytz.timezone("Asia/Makassar")
 last_status = ""
 last_sent_time = 0
 lock = threading.Lock()
+monitor_thread_started = False  # Cegah multiple thread
 
 # === AMBIL DATA ===
 def ambil_data_thingspeak(jumlah_data=200):
@@ -118,35 +118,17 @@ def deteksi_dan_prediksi(df):
     except Exception:
         traceback.print_exc()
 
-# === LOOP MONITORING ===
+# === LOOP TIAP 10 MENIT ===
 def loop_monitoring():
-    lock_file = "loop_monitoring.lock"
+    print("[INFO] Loop monitoring mulai...")
+    df = ambil_data_thingspeak(200)
+    if not df.empty:
+        deteksi_dan_prediksi(df)
+    else:
+        print("⚠️ Data kosong, lewati monitoring.")
+    threading.Thread(target=lambda: (time.sleep(600), loop_monitoring()), daemon=True).start()
 
-    if os.path.exists(lock_file):
-        print("[LOCK] Monitoring sudah aktif, skip.")
-        return
-
-    try:
-        with open(lock_file, "w") as f:
-            f.write(str(os.getpid()))
-
-        print("[INFO] Loop monitoring mulai...")
-        df = ambil_data_thingspeak(200)
-        if not df.empty:
-            deteksi_dan_prediksi(df)
-        else:
-            print("⚠️ Data kosong, lewati monitoring.")
-
-        threading.Timer(600, loop_monitoring).start()
-
-    except Exception as e:
-        print(f"[ERROR] Monitoring gagal: {e}")
-
-    finally:
-        if os.path.exists(lock_file):
-            os.remove(lock_file)
-
-# === HALAMAN UTAMA ===
+# === WEB UNTUK TAMPILAN MANUAL ===
 @app.route('/')
 def index():
     try:
