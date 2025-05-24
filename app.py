@@ -176,6 +176,8 @@ def index():
 
 # === JALANKAN APP ===
 if __name__ == '__main__':
-    loop_monitoring()
+    if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        print(f"[PID] Proses ID: {os.getpid()}")  # ← Tambahkan di sini
+        loop_monitoring()
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, use_reloader=False)
+    app.run(host="0.0.0.0", port=port, use_reloader=False) 
