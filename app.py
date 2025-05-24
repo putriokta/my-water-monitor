@@ -92,7 +92,7 @@ def deteksi_dan_prediksi(df):
         # Notif prediksi (level 1)
         if "🚨" in status_prediksi and (status_prediksi != last_status_prediksi or waktu_sekarang - last_sent_time_prediksi >= NOTIF_INTERVAL):
             pesan_prediksi = (
-                f"🚨 *Peringatan Awal (Prediksi 1 Jam)* 🚨\n"
+                f"🚨 *Peringatan Awal (Prediksi 1 Jam)* 🚨\n\n"
                 f"📍 Waktu Aktual: {waktu_terakhir.strftime('%H:%M:%S')} WITA\n"
                 f"pH Aktual: {aktual_ph:.2f} | Suhu Aktual: {aktual_suhu:.2f}°C\n"
                 f"\n🔮 Prediksi 1 Jam ke Depan ({waktu_pred_60.strftime('%H:%M:%S')} WITA):\n"
@@ -170,6 +170,6 @@ def index():
 
 # === JALANKAN APP ===
 if __name__ == '__main__':
-    loop_monitoring()
+    # loop_monitoring()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
