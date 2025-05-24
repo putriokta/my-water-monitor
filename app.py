@@ -118,16 +118,15 @@ def deteksi_dan_prediksi(df):
     except Exception:
         traceback.print_exc()
 
-# === LOOP TIAP 10 MENIT, versi fix tanpa spawn thread baru tiap loop ===
+# === LOOP TIAP 10 MENIT ===
 def loop_monitoring():
     print("[INFO] Loop monitoring mulai...")
-    while True:
-        df = ambil_data_thingspeak(200)
-        if not df.empty:
-            deteksi_dan_prediksi(df)
-        else:
-            print("⚠️ Data kosong, lewati monitoring.")
-        time.sleep(600)
+    df = ambil_data_thingspeak(200)
+    if not df.empty:
+        deteksi_dan_prediksi(df)
+    else:
+        print("⚠️ Data kosong, lewati monitoring.")
+    threading.Thread(target=lambda: (time.sleep(600), loop_monitoring()), daemon=True).start()
 
 # === WEB UNTUK TAMPILAN MANUAL ===
 @app.route('/')
@@ -171,12 +170,14 @@ def index():
 
 # === JALANKAN APP ===
 if __name__ == '__main__':
-    global monitor_thread_started
     if not monitor_thread_started:
-        monitor_thread_started = True  # SET SEBELUM THREAD START
         def start_loop():
-            print(f"[PID] Proses ID: {os.getpid()}")
-            loop_monitoring()
+            global monitor_thread_started
+            if not monitor_thread_started:
+                monitor_thread_started = True
+                print(f"[PID] Proses ID: {os.getpid()}")
+                loop_monitoring()
+
         threading.Thread(target=start_loop, daemon=True).start()
 
     port = int(os.environ.get("PORT", 5000))
