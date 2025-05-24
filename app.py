@@ -170,7 +170,9 @@ def index():
 
 # === JALANKAN APP ===
 if __name__ == '__main__':
-    loop_monitoring()  # Jalankan loop monitoring background
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        loop_monitoring()
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, use_reloader=False)
+    app.run(host="0.0.0.0", port=port, use_reloader=True)
+
 
