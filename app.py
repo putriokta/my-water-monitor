@@ -153,7 +153,7 @@ def index():
         waktu_pred_60 = waktu_terakhir + pd.Timedelta(minutes=60)
 
         status = cek_rulebase(ph_60, suhu_60)
-        status_text = "🚨 Air mendekati ambang batas" if status == "danger" else "✅ Air dalam kondisi normal"
+        status_text = "🚨 Air mendekati ambang batas, harap melakukan pengecekkan kondisi air" if status == "danger" else "✅ Air dalam kondisi normal"
 
         return f"""
         <h2>📊 Monitoring Kualitas Air</h2>
@@ -172,4 +172,5 @@ def index():
 if __name__ == '__main__':
     loop_monitoring()  # Jalankan loop monitoring background
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, use_reloader=False)
+
