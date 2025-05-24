@@ -85,7 +85,8 @@ def deteksi_dan_prediksi(df):
 
         waktu_sekarang = time.time()
         if status != last_status or waktu_sekarang - last_sent_time >= 3600:
-            if "🚨" in status:
+         if "🚨" in status:
+            if status != last_status or waktu_sekarang - last_sent_time >= 3600:
                 pesan = (
                     f"{status}\n"
                     f"📍 Waktu Aktual: {waktu_terakhir.strftime('%H:%M:%S')} WITA\n"
@@ -97,9 +98,10 @@ def deteksi_dan_prediksi(df):
                 last_status = status
                 last_sent_time = waktu_sekarang
             else:
-                print("✅ Kondisi normal, tidak kirim pesan.")
+                print("⏳ Prediksi bahaya tetap, tunggu 1 jam untuk kirim ulang.")
         else:
-            print("⏳ Menunggu kondisi berubah atau 1 jam berlalu.")
+            print("✅ Prediksi aman.")
+
     except Exception:
         traceback.print_exc()
 
