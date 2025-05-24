@@ -19,8 +19,11 @@ CHAT_ID = "1027769170"
 CHANNEL_ID = "2761831"
 TIMEZONE = pytz.timezone("Asia/Makassar")
 
-last_status = ""
-last_sent_time = 0
+last_status_prediksi = ""
+last_sent_time_prediksi = 0
+last_status_aktual = ""
+last_sent_time_aktual = 0
+NOTIF_INTERVAL = 600  # 10 menit
 
 # === AMBIL DATA ===
 def ambil_data_thingspeak(jumlah_data=200):
@@ -42,7 +45,7 @@ def ambil_data_thingspeak(jumlah_data=200):
 def kirim_telegram(pesan):
     try:
         url = f"https://api.telegram.org/bot7724051850:AAFRc5UYlabkgAwriXHh51OeaNdXlGDRjUk/sendMessage"
-        payload = {"chat_id": CHAT_ID, "text": pesan}
+        payload = {"chat_id": CHAT_ID, "text": pesan, "parse_mode": "Markdown"}
         response = requests.post(url, data=payload)
         if response.status_code == 200:
             print("📤 Telegram dikirim.")
@@ -59,7 +62,7 @@ def cek_rulebase(ph, suhu):
 
 # === DETEKSI + PREDIKSI + NOTIF ===
 def deteksi_dan_prediksi(df):
-    global last_status, last_sent_time
+    global last_status_prediksi, last_sent_time_prediksi, last_status_aktual, last_sent_time_aktual
     try:
         waktu_terakhir = df['waktu'].iloc[-1]
         data_ph = df['pH'].dropna()
@@ -81,23 +84,40 @@ def deteksi_dan_prediksi(df):
         suhu_60 = pred_suhu[59]
         waktu_pred_60 = waktu_terakhir + pd.Timedelta(minutes=60)
 
-        status = cek_rulebase(ph_60, suhu_60)
+        status_prediksi = cek_rulebase(ph_60, suhu_60)
+        status_aktual = cek_rulebase(aktual_ph, aktual_suhu)
 
         waktu_sekarang = time.time()
 
-        if "🚨" in status and (status != last_status or waktu_sekarang - last_sent_time >= 600):
-            pesan = (
-                f"{status}\n"
+        # Notif prediksi (level 1)
+        if "🚨" in status_prediksi and (status_prediksi != last_status_prediksi or waktu_sekarang - last_sent_time_prediksi >= NOTIF_INTERVAL):
+            pesan_prediksi = (
+                f"🚨 *Peringatan Awal (Prediksi 1 Jam)* 🚨\n"
                 f"📍 Waktu Aktual: {waktu_terakhir.strftime('%H:%M:%S')} WITA\n"
-                f"pH: {aktual_ph:.2f} | Suhu: {aktual_suhu:.2f}°C\n"
+                f"pH Aktual: {aktual_ph:.2f} | Suhu Aktual: {aktual_suhu:.2f}°C\n"
                 f"\n🔮 Prediksi 1 Jam ke Depan ({waktu_pred_60.strftime('%H:%M:%S')} WITA):\n"
-                f"pH: {ph_60:.2f} | Suhu: {suhu_60:.2f}°C"
+                f"pH: {ph_60:.2f} | Suhu: {suhu_60:.2f}°C\n"
+                f"\n{status_prediksi}"
             )
-            kirim_telegram(pesan)
-            last_status = status
-            last_sent_time = waktu_sekarang
+            kirim_telegram(pesan_prediksi)
+            last_status_prediksi = status_prediksi
+            last_sent_time_prediksi = waktu_sekarang
         else:
-            print("✅ Tidak ada perubahan signifikan atau belum 10 menit.")
+            print("✅ Tidak ada notifikasi prediksi baru atau interval belum terpenuhi.")
+
+        # Notif aktual (level 2)
+        if "🚨" in status_aktual and (status_aktual != last_status_aktual or waktu_sekarang - last_sent_time_aktual >= NOTIF_INTERVAL):
+            pesan_aktual = (
+                f"🔴 *Peringatan Kritis (Kondisi Aktual)* 🔴\n"
+                f"📍 Waktu: {waktu_terakhir.strftime('%H:%M:%S')} WITA\n"
+                f"pH: {aktual_ph:.2f} | Suhu: {aktual_suhu:.2f}°C\n"
+                f"\n{status_aktual}"
+            )
+            kirim_telegram(pesan_aktual)
+            last_status_aktual = status_aktual
+            last_sent_time_aktual = waktu_sekarang
+        else:
+            print("✅ Tidak ada notifikasi aktual baru atau interval belum terpenuhi.")
 
     except Exception:
         traceback.print_exc()
@@ -107,7 +127,7 @@ def loop_monitoring():
     df = ambil_data_thingspeak(200)
     if not df.empty:
         deteksi_dan_prediksi(df)
-    threading.Timer(600, loop_monitoring).start()  # setiap 10 menit
+    threading.Timer(600, loop_monitoring).start()  # tiap 10 menit
 
 # === WEB UNTUK TAMPILAN MANUAL ===
 @app.route('/')
@@ -150,6 +170,6 @@ def index():
 
 # === JALANKAN APP ===
 if __name__ == '__main__':
-    # loop_monitoring()
+    loop_monitoring()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
