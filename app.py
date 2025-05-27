@@ -1,4 +1,5 @@
 from flask import Flask
+from statsmodels.tsa.arima.model import ARIMA
 import pandas as pd
 from pmdarima import auto_arima
 import requests
@@ -128,8 +129,8 @@ def index():
         aktual_ph = data_ph.iloc[-1]
         aktual_suhu = data_suhu.iloc[-1]
 
-        model_ph = auto_arima(data_ph, seasonal=False, suppress_warnings=True, stepwise=True)
-        model_suhu = auto_arima(data_suhu, seasonal=False, suppress_warnings=True, stepwise=True)
+        model_ph = ARIMA(data_ph, order=(9,1,9)).fit()
+        model_suhu = ARIMA(data_suhu, order=(6,1,6)).fit()
 
         pred_ph = model_ph.predict(n_periods=60).tolist()
         pred_suhu = model_suhu.predict(n_periods=60).tolist()
