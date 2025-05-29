@@ -55,7 +55,7 @@ def kirim_telegram(pesan):
 
 # === RULE BASE ===
 def cek_rulebase(ph, suhu):
-    if ph <= 6.5 or ph >= 8.9 or suhu <= 26 or suhu >= 29:
+    if ph <= 6.6 or ph >= 8.4 or suhu <= 26.5 or suhu >= 29.5:
         return "🚨 Air mendekati ambang batas, harap melakukan pengecekkan kondisi air"
     return "✅ Air dalam kondisi normal"
 
